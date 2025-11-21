@@ -1,0 +1,134 @@
+proc findmax { items } {
+  set max 0
+  foreach i $items { 
+    if { $i > $max } {
+      set max $i
+    }
+  }
+ return $max
+}
+
+proc findmin { items } {
+  set min "NO VIO"
+  foreach i $items { 
+    if { $i < $min } {
+      set min [format %f $i]
+    }
+  }
+ return $min
+}
+
+proc cal_sum { items } {
+set sum 0
+foreach i $items {
+ set sum [expr $sum + $i]
+}
+return $sum
+}
+
+
+proc get_info_for_adjust_clock {PIN type value_l value_c} {
+set i 0
+set end_TG [filter_collection [all_fanout -from $PIN -flat] "is_clock_source_network == false && is_clock_source == false && is_clock_pin == true"]
+set end_TG_CLOCK [filter_collection [all_fanout -from $PIN -flat -endpoints_only] "is_clock_source == true || is_clock_source_network == true "]
+                while {[sizeof_collection $end_TG_CLOCK] != "0"} {
+                        foreach_in_collection FF $end_TG_CLOCK {
+                                if {[sizeof_collection [get_port -q $FF]] == 0} {
+                                        if {[get_attribute [filter_collection [get_pin -of [get_cell -q -of $FF]] "direction == out"] is_clock_network] == "true"} {
+                                        append_to_collection end_TG_CLOCK [filter_collection [all_fanout -from $FF -flat -endpoints_only] "is_clock_source == true || is_clock_source_network == true ||is_clock_network_cell == true"]
+                                        append_to_collection end_TG [filter_collection [all_fanout -from $FF -flat ] "(is_clock_source_network == false && is_clock_source == false && is_clock_pin == true) || (is_clock_source_network == true) || (is_clock_source == true) "]
+                                        set end_TG_CLOCK [remove_from_collection $end_TG_CLOCK [get_pin -q $FF]]
+                                        }
+                                }
+                        }
+                }
+echo "-----------------------------------------------------------------------------------------------"
+set end_TG_temp [get_cell -of $end_TG]
+set end_TG_end [add_to_collection -u $end_TG_temp $end_TG_temp]
+
+set NUM_PATH_c  0
+set WNS_c ""
+set TNS_c 0
+set NUM_PATH_l  0
+set WNS_l ""
+set TNS_l 0
+        set timing_path_l [get_timing_path -delay_type $type -from [filter_collection [get_pin -of $end_TG_end] "is_clock_pin == true"] -start_end_pair -slack_lesser_than $value_l]
+                if {[llength $timing_path_l] == "0"} {
+                } else {
+                set NUM_PATH_l [expr $NUM_PATH_l + [sizeof_collection $timing_path_l]]
+                set WNS_l [append WNS_l  " [format "%.3f" [findmin [get_attribute $timing_path_l slack]]]"]
+                set TNS_l [format "%.3f" [expr $TNS_l + [cal_sum [get_attribute $timing_path_l slack]]]]
+                }
+        set timing_path_c [get_timing_path -delay_type $type -to [filter_collection [get_pin -of $end_TG_end] "is_data_pin == true"] -start_end_pair -slack_lesser_than $value_c]
+                if {[llength $timing_path_c] == "0"} {
+                } else {
+                set NUM_PATH_c [expr $NUM_PATH_c + [sizeof_collection $timing_path_c]]
+                set WNS_c [append WNS_c " [format "%.3f" [findmin [get_attribute $timing_path_c slack]]]"]
+                set TNS_c [format "%.3f" [expr $TNS_c + [cal_sum [get_attribute $timing_path_c slack]]]]
+                }
+set WNS_c [findmin $WNS_c]
+set WNS_l [findmin $WNS_l]
+puts [format "|%5s (%10s) %10s |%10s | %10s | %10s | %10s | %10s|" [get_attribute [get_pin $PIN] full_name] [get_attribute [get_cell -of $PIN] ref_name] $NUM_PATH_l $WNS_l $TNS_l $NUM_PATH_c $WNS_c $TNS_c]
+}
+#}
+#source scr/common_proc.tcl
+
+proc get_adjust_from_report {START END type value_l value_c} {
+
+set PATH [get_timing_path -delay $type -from $START -to $END -path_type full_clock_expand]
+set SLACK [get_attribute $PATH slack]
+set LAUN_CLOCK [COL2LIST [get_attribute [get_attribute [get_attribute $PATH launch_clock_paths] points] object]]
+set CAP_CLOCK  [COL2LIST [get_attribute [get_attribute [get_attribute $PATH capture_clock_paths] points] object]]
+set COMMON_POINT [get_object_name  [get_attribute $PATH crpr_common_point]]
+
+puts "#### SLACK : $SLACK "
+puts "##################### CLOCK PATH ANALYSIS IN LAUNCH PATH --> SHORTEN IN SETUP #########################"
+set NOT_COMON_LAUNCH [lrange $LAUN_CLOCK [lsearch $LAUN_CLOCK $COMMON_POINT] end-1]
+set n [llength $NOT_COMON_LAUNCH ]
+puts [format "%50s %40s"  LAUNCH_PATH CAPTURE_PATH]
+puts [format "%-30s %10s %10s %10s %20s %10s %10s" PIN NUM_PATH_LAUN WNS_LAUN TNS_LAUN NUM_PATH_CAP WNS_CAP TNS_CAP]
+for {set i 1} {$i <  $n} {set i [expr $i + 1]} {
+get_info_for_adjust_clock [lindex $NOT_COMON_LAUNCH $i] $type $value_l $value_c
+}
+
+puts "################## CLOCK PATH ANALYSIS IN CAPTURE PATH --> LONGER IN SETUP #############################"
+set NOT_COMON_CAP [lrange $CAP_CLOCK [lsearch $CAP_CLOCK $COMMON_POINT] end-1]
+set m [llength $NOT_COMON_CAP ]
+puts [format "%50s %40s"  LAUNCH_PATH CAPTURE_PATH]
+puts [format "%-30s %10s %10s %10s %20s %10s %10s" PIN NUM_PATH_LAUN WNS_LAUN TNS_LAUN NUM_PATH_CAP WNS_CAP TNS_CAP]
+for {set j 1} {$j <  $m} {set j [expr $j + 1]} {
+get_info_for_adjust_clock [lindex $NOT_COMON_CAP $j] $type $value_l $value_c
+}
+}
+
+
+
+proc get_info_adjust_from_report {start_clock START END end_clock type value_l value_c} {
+
+set PATH [get_timing_path -delay $type -from $start_clock -thr $START -thr $END -to $end_clock -path_type full_clock_expand]
+set SLACK [get_attribute $PATH slack]
+set LAUN_CLOCK [COL2LIST [get_attribute [get_attribute [get_attribute $PATH launch_clock_paths] points] object]]
+set CAP_CLOCK  [COL2LIST [get_attribute [get_attribute [get_attribute $PATH capture_clock_paths] points] object]]
+set COMMON_POINT [get_object_name  [get_attribute $PATH crpr_common_point]]
+
+puts "#### SLACK : $SLACK "
+puts "##################### CLOCK PATH ANALYSIS IN LAUNCH PATH --> SHORTEN IN SETUP #########################"
+set NOT_COMON_LAUNCH [lrange $LAUN_CLOCK [lsearch $LAUN_CLOCK $COMMON_POINT] end-1]
+set n [llength $NOT_COMON_LAUNCH ]
+puts [format "%50s %40s"  LAUNCH_PATH CAPTURE_PATH]
+puts [format "%-30s %10s %10s %10s %20s %10s %10s" PIN NUM_PATH_LAUN WNS_LAUN TNS_LAUN NUM_PATH_CAP WNS_CAP TNS_CAP]
+for {set i 1} {$i <  $n} {set i [expr $i + 1]} {
+set PIN [lindex $NOT_COMON_LAUNCH $i]
+echo "[lindex $NOT_COMON_LAUNCH $i] [get_attribute [get_cell -of $PIN] ref_name]"
+}
+
+puts "################## CLOCK PATH ANALYSIS IN CAPTURE PATH --> LONGER IN SETUP #############################"
+set NOT_COMON_CAP [lrange $CAP_CLOCK [lsearch $CAP_CLOCK $COMMON_POINT] end-1]
+set m [llength $NOT_COMON_CAP ]
+puts [format "%50s %40s"  LAUNCH_PATH CAPTURE_PATH]
+puts [format "%-30s %10s %10s %10s %20s %10s %10s" PIN NUM_PATH_LAUN WNS_LAUN TNS_LAUN NUM_PATH_CAP WNS_CAP TNS_CAP]
+for {set j 1} {$j <  $m} {set j [expr $j + 1]} {
+set PINN [lindex $NOT_COMON_CAP $j]
+echo "[lindex $NOT_COMON_CAP $j] [get_attribute [get_cell -of $PINN] ref_name]"
+}
+}
