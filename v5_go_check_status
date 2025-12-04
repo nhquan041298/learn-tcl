@@ -1,0 +1,213 @@
+#!/bin/sh
+
+#\
+exec tclsh "$0" ${1+"$@"}
+
+set LIST_JOB   "./LIST_JOB_RUN"
+set LIST_LOG    "./LIST_LOG_NAME"
+set STATUS    "./report_status"
+proc READ_FILE { {FILE_NAME} } {
+    set chk [file exists $FILE_NAME]
+    if {$chk==0} {
+        puts "* ERROR: $FILE_NAME not found."
+        return -1
+    }
+
+    set fid [open $FILE_NAME]
+    set CHECK_LIST {}
+    while {[gets $fid str]>=0} {
+        lappend CHECK_LIST $str
+    }
+    close $fid
+    return $CHECK_LIST
+}
+
+proc bar2 {} {
+    puts "========================================================================="
+}
+proc GET_MTIME { {FILENAME} } {
+    if {[file exists ${FILENAME}]} {
+        return [clock format [file mtime ${FILENAME}] -format {%b/%d(%H:%M:%S)}]
+    } else {
+        return "-"
+    }
+}
+proc GET_LOG_NAME_FROM { {LIST_JOB} {LIST_LOG}} {
+    set FIN [open ${LIST_JOB} r ]
+    set FOUT [open ${LIST_LOG} w]
+    while {[gets $FIN line] >= 0} {
+	if {![regexp @ $line]} {
+		set prj_name V4M
+		set JOB_NAME         [lindex $line 0]
+		set ORDINAL_NUM      [lindex $line 1]
+		set G_PRIORITY       [lindex $line 2]
+		set PRIORITY         [lindex $line 3]
+		set JOB_TYPE         [lindex $line 4]
+		set JOB_SUB_TYPE     [lindex $line 5]
+		set STA_MODE         [lindex $line 6]
+		set CONDITION        [lindex $line 7]
+		set DELAY            [lindex $line 8]
+		set CPU              [lindex $line 9]
+		set MEM              [lindex $line 10]
+		set ND_OD            [lindex $line 11]
+		set OCV              [lindex $line 12]
+		set CANCEL_CU        [lindex $line 13]
+		set CANCEL_CLOCK     [lindex $line 14]
+		set CANCEL_CONST     [lindex $line 15]
+		set CANCEL_CASE      [lindex $line 16]
+		set CANCEL_UPDATE_T  [lindex $line 17]
+		set VCC_IO           [lindex $line 18]
+		set HS_TYPE          [lindex $line 19]
+		set EXT_SCRIPT       [lindex $line 20]
+		set DESIGN_CFG       [lindex $line 21]
+		set CLOCK_PROP       "PROP"
+		if {[regexp "def" $HS_TYPE ]} {
+		set HS_TYPE_s "_TOP"
+		} else {
+		set HS_TYPE_s "_TOP"
+		}
+		if {[regexp "def" $OCV]} {
+		set OCV_s "POCV"
+		} else {
+		set OCV_s $OCV
+		}
+		if {[regexp XTALK $JOB_NAME]} {
+		set JOB_SUB_TYPE_s ""
+		} else {
+		set JOB_SUB_TYPE_s "_${JOB_SUB_TYPE}"
+		}
+		if {[regexp def $ND_OD]} {
+                set ND_OD_s ""
+                } else {
+                set ND_OD_s "_${ND_OD}"
+                }
+		set LOG_NAME "./06_LOG/LOG/log.${prj_name}.${JOB_TYPE}${JOB_SUB_TYPE_s}${HS_TYPE_s}.SPEF.${CONDITION}_XT${ND_OD_s}.${STA_MODE}.${CLOCK_PROP}.${DELAY}.${OCV_s}"
+		if {[regexp DRV $JOB_NAME] || [regexp VTH $JOB_NAME] || [regexp TRAN0 $JOB_NAME]} {
+		set LOG_NAME "./06_LOG/LOG/log.${prj_name}.${JOB_TYPE}${JOB_SUB_TYPE_s}${HS_TYPE_s}.SPEF.${CONDITION}${ND_OD_s}.${STA_MODE}.${CLOCK_PROP}.${DELAY}.${OCV_s}"
+		}
+		if {[regexp XTALK $JOB_NAME] || [regexp MIX_TRACK $JOB_NAME] || [regexp META $JOB_NAME]} {
+		set LOG_NAME "./06_LOG/LOG/log.${prj_name}.${JOB_TYPE}${JOB_SUB_TYPE_s}${HS_TYPE_s}.SPEF.${CONDITION}_XT${ND_OD_s}.${STA_MODE}.${CLOCK_PROP}.${DELAY}_PBA.${OCV_s}"
+		}
+		puts $FOUT  "${LOG_NAME}"
+	}
+    }
+	close $FIN
+	close $FOUT
+}
+proc CHECK_JOB_STATUS {} {
+    global LIST_LOG
+    set LOGFILE [ READ_FILE "${LIST_LOG}" ]    
+    foreach tmp $LOGFILE {
+        set LIST1 "" ;# Log file
+        set MSG   ""
+        scan $tmp "%s" LIST1
+        if {[regexp {^rep.} ${LIST1}]} {
+            set FNAME_R   "${LIST1}"
+        } else {
+            set FNAME_R   "${LIST1}"
+        }
+        set MTIME [GET_MTIME $FNAME_R]
+
+        if { [regexp {^( *#)} $tmp]!=0 } {
+            puts $tmp
+        } elseif { [llength [join ${LIST1}]]>0 } {
+            if { [ file exists ${FNAME_R} ] > 0  } {
+                set FID_R [ open $FNAME_R ]
+                set START      0
+                set GOING      0
+                set FINISH     0
+                set ERR_EXIT   0
+                set FATAL_EXIT   0
+                set KILLED     0
+                set OUT_MEMORY 0
+                set LSF_FULL   0
+                set ABORT      0
+                set LINE_NUM   0
+                # End from this line number, check end status
+                set START_CHECK_LINE  100
+                set END_CHECK_LINE   1000
+                set TMP_LOG	"_chkstatus.tmplog.$LIST1"
+                regsub -all {/} $TMP_LOG {_} TMP_LOG
+
+                ##### Start check ###############
+                while {[gets $FID_R LINE]>=0 &&  $LINE_NUM < $START_CHECK_LINE} {
+                    incr LINE_NUM
+                    if {$START == 0 } {
+                        if { [regexp ^# $LINE] == 0} {
+                            if { [regexp "Starting on"   $LINE] == 1} {
+                                set START 1
+                            } elseif { [regexp "Terminated while pending" $LINE] == 1} {
+                                set START 1
+                                set KILLED 1
+                            }
+                        }
+                    }
+                }
+                close $FID_R
+
+                ##### END check ###############
+                eval exec "tail -n $END_CHECK_LINE ${FNAME_R} > $TMP_LOG"
+               # eval exec "chmod 664 ${TMP_LOG}"
+                set FID_R [ open $TMP_LOG ]
+                while {[gets $FID_R LINE]>=0 && $START == 1} {
+                    if { [regexp ^# $LINE] == 0} {
+                        #if { [regexp " Thank"         $LINE] == 1} { set FINISH 1 }
+                        if { [regexp "^Thank you for using pt_shell" $LINE] == 1} { set FINISH 1 }
+                        if { [regexp "^Maximum memory usage for this session" $LINE] == 1} { set FINISH 1 }
+                        if { [regexp "^--- Ending \"Tempus Timing Solution\"" $LINE] == 1} { set FINISH 1 }
+                        if { [regexp "^check_resource END" $LINE] == 1} { set FINISH 1 }
+                        if { [regexp "stopped "      $LINE] == 1} { set ERR_EXIT 1 }
+                        if { [regexp "^Fatal"         $LINE] == 1} { set FATAL_EXIT 1 }
+                        if { [regexp "^Stack trace for crashing thread"         $LINE] == 1} { set FATAL_EXIT 1 }
+                        if { [regexp "^ERROR: "         $LINE] == 1} { set ERR_EXIT 1 }
+                #        if { [regexp "^Fatal: Internal system error"         $LINE] == 1} { set OUT_MEMORY 1 }
+                        if { [regexp "terminated"    $LINE] == 1
+                            && [regexp "puts"   $LINE] == 0} { set KILLED 1 }
+                        if { [regexp "^Terminated"   $LINE] == 1} { set KILLED 1 }
+                        if { [regexp "Out of memory" $LINE] == 1} { set OUT_MEMORY 1 }
+                        if { [regexp "Resource temporarily unavailable" $LINE] == 1} { set LSF_FULL 1 }
+                        if { [regexp {^Abort at [0-9]+} $LINE] == 1} { set ABORT 1 }
+                    }
+                }
+                close $FID_R
+                exec rm -f ${TMP_LOG}
+
+                if { ${START} == 0 } {
+                    set MSG "PEND"
+                } else {
+                    if { ${KILLED} ==1 } {
+                        set MSG "E(KILL)"
+                    } elseif  { ${FINISH} == 1 } {
+                        set MSG "FINISH"
+                        if { ${ERR_EXIT} == 1 } {
+                            set MSG "E(EXIT)"
+                        }
+                    	if { ${OUT_MEMORY} == 1 } {
+                        set MSG "E(MEM1)"
+			}		
+                    } elseif { ${OUT_MEMORY} == 1 } {
+                        set MSG "E(MEM2)"
+                    } elseif { ${LSF_FULL} == 1 } {
+                        set MSG "E(LSF)"
+                    } elseif { ${ABORT} == 1 } {
+                        set MSG "E(ABORT)"
+                    } elseif {${FATAL_EXIT} == 1} {
+                        set MSG "E(FATAL)"		
+                    } else {
+                        set MSG "RUN"
+                    }
+                }
+            } else {
+                set MSG "---"
+            }
+            puts [format "%10s %20s %s" ${MSG} ${MTIME} ${FNAME_R}]
+            set MTIME "-"
+        } else {
+            puts ""
+        }
+    }
+}
+
+
+#GET_LOG_NAME_FROM ${LIST_JOB}  ${LIST_LOG}
+CHECK_JOB_STATUS 
