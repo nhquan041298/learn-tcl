@@ -547,12 +547,12 @@ proc write_lib_setting {global_views_dict outfile} {
 
 # ======= MAIN  =========
 # 0.Configuration file
-set UPF_FILE  "/ASIC3/users/hongquan_nguyen/scripts/01_flow/ref.upf"
-#set VIEW_FILE "/ASIC3/users/hongquan_nguyen/scripts/01_flow/ref_view.tcl"
-set VIEW_FILE "/ASIC3/users/hongquan_nguyen/scripts/01_flow/viewDefinition.tcl"
-set UPF_NOTE  "/ASIC3/users/hongquan_nguyen/scripts/01_flow/upf_note.txt"
-set VIEW_NOTE "/ASIC3/users/hongquan_nguyen/scripts/01_flow/view_note.txt"
-set LIB_FILE "/ASIC3/users/hongquan_nguyen/scripts/01_flow/lib_setup.tcl"
+set UPF_FILE  "/ASIC3/users/hongquan_nguyen/scripts/01_flow/DEMO/ref.upf"
+#set VIEW_FILE "/ASIC3/users/hongquan_nguyen/scripts/01_flow/DEMO/ref_view.tcl"
+set VIEW_FILE "/ASIC3/users/hongquan_nguyen/scripts/01_flow/DEMO/viewDefinition.tcl"
+set UPF_NOTE  "/ASIC3/users/hongquan_nguyen/scripts/01_flow/DEMO/upf_note.txt"
+set VIEW_NOTE "/ASIC3/users/hongquan_nguyen/scripts/01_flow/DEMO/view_note.txt"
+set LIB_FILE "/ASIC3/users/hongquan_nguyen/scripts/01_flow/DEMO/lib_setup.tcl"
 
 # 1.Parse UPF to get main_domains and normal_domains
 set upf_dict [parse_upf $UPF_FILE]
